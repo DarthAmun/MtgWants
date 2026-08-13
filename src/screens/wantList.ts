@@ -5,6 +5,7 @@ import { ensureAllSetsLoaded } from "../lib/allSets";
 import { RARITY_ORDER, rarityLabel } from "../lib/rarity";
 import { escapeHtml } from "../lib/dom";
 import { buildMpcfillText, downloadTextFile, copyToClipboard } from "../lib/export";
+import { dedupeWantList } from "../lib/wantListOps";
 import type { AllSetRecord, WantListEntry } from "../types";
 
 type ViewMode = "list" | "grid";
@@ -286,6 +287,9 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
 
   (async () => {
     allSetsByCode = new Map((await ensureAllSetsLoaded()).map((s) => [s.code, s]));
+    // One-time cleanup: merge any rows that ended up with the same card name
+    // under different set/rarity before name-only merging was in place.
+    await dedupeWantList();
     sub = liveQuery(() => db.want_list.toArray()).subscribe({
       next: async (rows) => {
         entries = rows;

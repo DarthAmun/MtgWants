@@ -57,6 +57,37 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
     });
   }
 
+  /**
+   * Multiple printings of the same card (showcase/borderless/extended-art
+   * variants, etc.) share a name — for want-list purposes they're the same
+   * slot, so collapse them to one representative + a version count.
+   */
+  function collapseByName(cards: CachedCard[]): { card: CachedCard; count: number }[] {
+    const byName = new Map<string, { card: CachedCard; count: number }>();
+    for (const c of cards) {
+      const existing = byName.get(c.name);
+      if (existing) existing.count += 1;
+      else byName.set(c.name, { card: c, count: 1 });
+    }
+    return [...byName.values()];
+  }
+
+  function rarityGroups(cards: CachedCard[]): { rarity: string; items: { card: CachedCard; count: number }[] }[] {
+    const filtered = filteredCards(cards);
+    const byRarity = new Map<string, CachedCard[]>();
+    for (const c of filtered) {
+      const bucket = CANONICAL_RARITIES.includes(c.rarity as (typeof CANONICAL_RARITIES)[number])
+        ? c.rarity
+        : "other";
+      if (!byRarity.has(bucket)) byRarity.set(bucket, []);
+      byRarity.get(bucket)!.push(c);
+    }
+    const order = [...CANONICAL_RARITIES, "other"];
+    return order
+      .filter((r) => byRarity.has(r) && byRarity.get(r)!.length > 0)
+      .map((r) => ({ rarity: r, items: collapseByName(byRarity.get(r)!) }));
+  }
+
   function suggestions(): AllSetRecord[] {
     const q = query.trim().toLowerCase();
     return allSets
@@ -174,20 +205,8 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
       body = `<p class="status-line error">${escapeHtml(state.error ?? "Failed to load set.")}</p>
         <button type="button" class="btn secondary small" data-action="retry-set" data-code="${escapeHtml(code)}">Retry</button>`;
     } else {
-      const cards = filteredCards(state.record!.cards);
-      const byRarity = new Map<string, CachedCard[]>();
-      for (const c of cards) {
-        const bucket = CANONICAL_RARITIES.includes(c.rarity as (typeof CANONICAL_RARITIES)[number])
-          ? c.rarity
-          : "other";
-        if (!byRarity.has(bucket)) byRarity.set(bucket, []);
-        byRarity.get(bucket)!.push(c);
-      }
-      const order = [...CANONICAL_RARITIES, "other"];
-      const sections = order
-        .filter((r) => byRarity.has(r) && byRarity.get(r)!.length > 0)
-        .map((r) => renderRaritySection(code, r, byRarity.get(r)!))
-        .join("");
+      const groups = rarityGroups(state.record!.cards);
+      const sections = groups.map((g) => renderRaritySection(code, g.rarity, g.items)).join("");
       body =
         sections ||
         `<p class="empty-state">No cards match the current rarity filter.</p>`;
@@ -206,30 +225,35 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
     `;
   }
 
-  function renderRaritySection(code: string, rarity: string, cards: CachedCard[]): string {
+  function renderRaritySection(
+    code: string,
+    rarity: string,
+    items: { card: CachedCard; count: number }[],
+  ): string {
     const label = rarity === "other" ? "Other" : rarityLabel(rarity);
     const checkedSet = checked.get(code);
     const inner =
       viewMode === "list"
-        ? `<div class="card-list">${cards
-            .map((c) => {
+        ? `<div class="card-list">${items
+            .map(({ card: c, count }) => {
               const isChecked = checkedSet?.has(c.collector_number) ?? false;
               return `
               <label class="card-row">
                 <input type="checkbox" data-action="toggle-check" data-set="${escapeHtml(code)}" data-key="${escapeHtml(c.collector_number)}" ${isChecked ? "checked" : ""} />
                 <span class="rarity-dot ${rarity === "other" ? "" : rarity}"></span>
                 <span class="name">${escapeHtml(c.name)}</span>
-                <span class="meta">#${escapeHtml(c.collector_number)}</span>
+                <span class="meta">${count > 1 ? `${count} versions` : `#${escapeHtml(c.collector_number)}`}</span>
               </label>
             `;
             })
             .join("")}</div>`
-        : `<div class="card-grid">${cards
-            .map((c) => {
+        : `<div class="card-grid">${items
+            .map(({ card: c, count }) => {
               const isChecked = checkedSet?.has(c.collector_number) ?? false;
               return `
               <div class="card-tile ${isChecked ? "selected" : ""}" data-action="toggle-check" data-set="${escapeHtml(code)}" data-key="${escapeHtml(c.collector_number)}" role="button" tabindex="0">
                 ${c.image_uri ? `<img src="${escapeHtml(c.image_uri)}" alt="${escapeHtml(c.name)}" loading="lazy" />` : `<div class="card-tile-noimg">${escapeHtml(c.name)}</div>`}
+                ${count > 1 ? `<span class="version-badge">×${count}</span>` : ""}
                 <div class="caption">
                   <span class="name">${escapeHtml(c.name)}</span>
                 </div>
@@ -240,7 +264,7 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
 
     return `
       <div class="rarity-section">
-        <div class="rarity-section-label"><span class="rarity-dot ${rarity === "other" ? "" : rarity}"></span>${escapeHtml(label)} (${cards.length})</div>
+        <div class="rarity-section-label"><span class="rarity-dot ${rarity === "other" ? "" : rarity}"></span>${escapeHtml(label)} (${items.length})</div>
         ${inner}
       </div>
     `;
@@ -309,10 +333,12 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
     for (const code of selected) {
       const state = setData.get(code);
       if (!state || state.status !== "loaded") continue;
-      const cards = filteredCards(state.record!.cards);
+      const groups = rarityGroups(state.record!.cards);
       if (!checked.has(code)) checked.set(code, new Set());
       const s = checked.get(code)!;
-      for (const c of cards) s.add(c.collector_number);
+      for (const g of groups) {
+        for (const { card } of g.items) s.add(card.collector_number);
+      }
     }
     render();
   }
@@ -323,7 +349,12 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
   }
 
   async function addChecked() {
-    const entries: { name: string; set_code: string; rarity: string; quantity: number }[] = [];
+    // A card checked in more than one place — a different printing within a
+    // set, or the same name appearing in another selected set entirely (e.g.
+    // Strixhaven vs. Strixhaven Commander) — is still one conceptual card:
+    // collapse by name so it becomes a single want-list slot at `quantity`,
+    // not `quantity` multiplied per duplicate checkbox.
+    const byName = new Map<string, { name: string; set_code: string; rarity: string; quantity: number }>();
     for (const [code, keys] of checked.entries()) {
       const state = setData.get(code);
       if (!state || state.status !== "loaded") continue;
@@ -331,9 +362,12 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
       for (const key of keys) {
         const card = byKey.get(key);
         if (!card) continue;
-        entries.push({ name: card.name, set_code: code, rarity: card.rarity, quantity });
+        if (!byName.has(card.name)) {
+          byName.set(card.name, { name: card.name, set_code: code, rarity: card.rarity, quantity });
+        }
       }
     }
+    const entries = [...byName.values()];
     if (entries.length === 0) return;
 
     await addToWantList(entries);
