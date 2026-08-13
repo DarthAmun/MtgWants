@@ -1,7 +1,11 @@
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig({
+// Deployed as a GitHub Pages project site (github.com/DarthAmun/MtgWants ->
+// darthamun.github.io/MtgWants/), so production builds need that subpath as
+// the base. Dev server stays at "/" for convenience.
+export default defineConfig(({ command }) => ({
+  base: command === "build" ? "/MtgWants/" : "/",
   plugins: [
     VitePWA({
       registerType: "autoUpdate",
@@ -14,7 +18,9 @@ export default defineConfig({
         theme_color: "#14151a",
         background_color: "#14151a",
         display: "standalone",
-        start_url: "/",
+        // start_url/scope intentionally omitted — vite-plugin-pwa derives
+        // them from the resolved `base` above, so this stays correct for
+        // both local dev ("/") and the Pages subpath ("/MtgWants/").
         icons: [
           { src: "pwa-192.png", sizes: "192x192", type: "image/png" },
           { src: "pwa-512.png", sizes: "512x512", type: "image/png" },
@@ -36,4 +42,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));
