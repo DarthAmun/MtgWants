@@ -15,6 +15,7 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
   const imageCache = new Map<string, string | null>(); // key: `${set_code}::${name}::${rarity}`
   let viewMode: ViewMode = "list";
   let statusMessage = "";
+  const selected = new Set<number>();
 
   container.innerHTML = `<div class="want-list-screen"></div>`;
   const root = container.querySelector<HTMLDivElement>(".want-list-screen")!;
@@ -76,6 +77,12 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
             <button type="button" data-action="view-list" class="${viewMode === "list" ? "active" : ""}">List</button>
             <button type="button" data-action="view-grid" class="${viewMode === "grid" ? "active" : ""}">Grid</button>
           </div>
+          ${
+            selected.size > 0
+              ? `<button type="button" class="btn secondary small" data-action="clear-selection">Clear selection</button>
+                 <button type="button" class="btn danger" data-action="remove-selected">Remove selected (${selected.size})</button>`
+              : ""
+          }
           <button type="button" class="btn secondary" data-action="export-copy" ${entries.length === 0 ? "disabled" : ""}>Copy for MPCFill</button>
           <button type="button" class="btn" data-action="export-download" ${entries.length === 0 ? "disabled" : ""}>Download .txt</button>
         </div>
@@ -122,10 +129,17 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
     const inner =
       viewMode === "list" ? renderListRows(rows) : await renderGridTiles(rows);
 
+    const ids = rows.map((r) => r.id!);
+    const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+    const idList = ids.join(",");
+
     return `
       <div class="rarity-section">
         <div class="rarity-section-label">
           ${rarity ? `<span class="rarity-dot ${rarity}"></span>` : ""}${escapeHtml(rarityLabel(rarity))} (${totalQty(rows)})
+          <button type="button" class="btn secondary small" data-action="toggle-select-section" data-ids="${idList}">
+            ${allSelected ? "Deselect all" : "Select all"}
+          </button>
         </div>
         ${inner}
       </div>
@@ -137,6 +151,7 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
       .map(
         (r) => `
         <div class="card-row">
+          <input type="checkbox" data-action="toggle-select" data-id="${r.id}" ${selected.has(r.id!) ? "checked" : ""} />
           <span class="name">${escapeHtml(r.name)}</span>
           <input type="number" class="qty-input" min="1" value="${r.quantity}" data-action="edit-qty" data-id="${r.id}" />
           <button type="button" class="btn danger small" data-action="remove-entry" data-id="${r.id}">Remove</button>
@@ -151,7 +166,8 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
       rows.map(async (r) => {
         const uri = await imageFor(r);
         return `
-          <div class="card-tile">
+          <div class="card-tile ${selected.has(r.id!) ? "selected" : ""}">
+            <input type="checkbox" class="select-box" data-action="toggle-select" data-id="${r.id}" ${selected.has(r.id!) ? "checked" : ""} />
             ${uri ? `<img src="${escapeHtml(uri)}" alt="${escapeHtml(r.name)}" loading="lazy" />` : `<div class="card-tile-noimg">${escapeHtml(r.name)}</div>`}
             <button type="button" class="remove-btn" data-action="remove-entry" data-id="${r.id}" aria-label="Remove ${escapeHtml(r.name)}">&times;</button>
             <div class="caption">
@@ -171,7 +187,31 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
   }
 
   async function removeEntry(id: number) {
+    selected.delete(id);
     await db.want_list.delete(id);
+  }
+
+  async function removeSelected() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (ids.length > 1 && !confirm(`Remove ${ids.length} entries from your want list?`)) return;
+    await db.want_list.bulkDelete(ids);
+    selected.clear();
+  }
+
+  function toggleSelect(id: number) {
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+    void render();
+  }
+
+  function toggleSelectSection(ids: number[]) {
+    const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+    for (const id of ids) {
+      if (allSelected) selected.delete(id);
+      else selected.add(id);
+    }
+    void render();
   }
 
   function onClick(e: MouseEvent) {
@@ -191,6 +231,21 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
       case "remove-entry":
         void removeEntry(Number(actionEl.dataset.id));
         break;
+      case "remove-selected":
+        void removeSelected();
+        break;
+      case "clear-selection":
+        selected.clear();
+        void render();
+        break;
+      case "toggle-select-section": {
+        const ids = (actionEl.dataset.ids ?? "")
+          .split(",")
+          .filter(Boolean)
+          .map(Number);
+        toggleSelectSection(ids);
+        break;
+      }
       case "export-copy":
         void doExport("copy");
         break;
@@ -206,6 +261,9 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
       const id = Number((target as HTMLInputElement).dataset.id);
       const value = parseInt((target as HTMLInputElement).value, 10);
       void updateQuantity(id, value);
+    } else if (target.matches('input[data-action="toggle-select"]')) {
+      const id = Number((target as HTMLInputElement).dataset.id);
+      toggleSelect(id);
     }
   }
 
@@ -232,6 +290,10 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
       next: async (rows) => {
         entries = rows;
         imageCache.clear();
+        const validIds = new Set(rows.map((r) => r.id!));
+        for (const id of selected) {
+          if (!validIds.has(id)) selected.delete(id);
+        }
         await render();
       },
       error: (err) => console.error("want_list liveQuery error", err),

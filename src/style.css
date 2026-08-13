@@ -294,6 +294,12 @@ textarea {
   gap: 0.4rem;
 }
 
+.rarity-section-label button {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 /* List rows */
 .card-row {
   display: flex;
@@ -334,6 +340,15 @@ textarea {
 
 .card-tile.selected {
   border-color: var(--accent);
+}
+
+.card-tile .select-box {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  z-index: 1;
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .card-tile img {
