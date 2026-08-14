@@ -37,26 +37,28 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
     return uri;
   }
 
-  function groupBySet(): { code: string | null; label: string; releasedAt: string | null; rows: WantListEntry[] }[] {
-    const groups = new Map<string | null, WantListEntry[]>();
+  function groupByRarity(): { rarity: string | null; label: string; rows: WantListEntry[] }[] {
+    const groups = new Map<string, WantListEntry[]>();
     for (const e of entries) {
-      const key = e.set_code;
+      const key = e.rarity ?? "__unknown__";
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(e);
     }
 
-    const result: { code: string | null; label: string; releasedAt: string | null; rows: WantListEntry[] }[] = [];
-    for (const [code, rows] of groups.entries()) {
-      if (code === null) continue;
-      const rec = allSetsByCode.get(code);
-      result.push({ code, label: rec?.name ?? code, releasedAt: rec?.released_at ?? null, rows });
-    }
-    result.sort((a, b) => (Date.parse(b.releasedAt ?? "") || 0) - (Date.parse(a.releasedAt ?? "") || 0));
-
-    if (groups.has(null)) {
-      result.push({ code: null, label: "Unsorted", releasedAt: null, rows: groups.get(null)! });
+    const order = [...RARITY_ORDER, "__unknown__"];
+    const result: { rarity: string | null; label: string; rows: WantListEntry[] }[] = [];
+    for (const key of order) {
+      const rows = groups.get(key);
+      if (!rows) continue;
+      const rarity = key === "__unknown__" ? null : key;
+      result.push({ rarity, label: rarityLabel(rarity), rows });
     }
     return result;
+  }
+
+  function setLabel(entry: WantListEntry): string {
+    if (!entry.set_code) return "";
+    return allSetsByCode.get(entry.set_code)?.name ?? "";
   }
 
   function totalQty(rows: WantListEntry[]): number {
@@ -64,11 +66,11 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
   }
 
   async function render() {
-    const groups = groupBySet();
+    const groups = groupByRarity();
     const grandTotalCards = totalQty(entries);
     const grandTotalUnique = entries.length;
 
-    const boxesHtml = await Promise.all(groups.map((g) => renderSetGroup(g)));
+    const boxesHtml = await Promise.all(groups.map((g) => renderRarityGroup(g)));
 
     root.innerHTML = `
       <section>
@@ -94,50 +96,23 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
     `;
   }
 
-  async function renderSetGroup(group: {
-    code: string | null;
+  async function renderRarityGroup(group: {
+    rarity: string | null;
     label: string;
-    releasedAt: string | null;
     rows: WantListEntry[];
   }): Promise<string> {
-    const byRarity = new Map<string, WantListEntry[]>();
-    for (const row of group.rows) {
-      const key = row.rarity ?? "__unknown__";
-      if (!byRarity.has(key)) byRarity.set(key, []);
-      byRarity.get(key)!.push(row);
-    }
-
-    const order = [...RARITY_ORDER, "__unknown__"];
-    const sectionsHtml = await Promise.all(
-      order
-        .filter((r) => byRarity.has(r))
-        .map((r) => renderRaritySection(r === "__unknown__" ? null : r, byRarity.get(r)!)),
-    );
-
-    return `
-      <div class="set-box">
-        <div class="set-box-header">
-          <h3>${escapeHtml(group.label)}${group.code ? ` <span class="meta">${escapeHtml(group.code.toUpperCase())}${group.releasedAt ? " · " + group.releasedAt : ""}</span>` : ""}</h3>
-          <span class="meta">${totalQty(group.rows)} card${totalQty(group.rows) === 1 ? "" : "s"}</span>
-        </div>
-        ${sectionsHtml.join("")}
-      </div>
-    `;
-  }
-
-  async function renderRaritySection(rarity: string | null, rows: WantListEntry[]): Promise<string> {
-    rows.sort((a, b) => a.name.localeCompare(b.name));
-    const inner =
-      viewMode === "list" ? renderListRows(rows) : await renderGridTiles(rows);
+    const rows = [...group.rows].sort((a, b) => a.name.localeCompare(b.name));
+    const inner = viewMode === "list" ? renderListRows(rows) : await renderGridTiles(rows);
 
     const ids = rows.map((r) => r.id!);
     const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
     const idList = ids.join(",");
 
     return `
-      <div class="rarity-section">
-        <div class="rarity-section-label">
-          ${rarity ? `<span class="rarity-dot ${rarity}"></span>` : ""}${escapeHtml(rarityLabel(rarity))} (${totalQty(rows)})
+      <div class="set-box">
+        <div class="set-box-header">
+          <h3>${group.rarity ? `<span class="rarity-dot ${group.rarity}"></span> ` : ""}${escapeHtml(group.label)}</h3>
+          <span class="meta">${totalQty(rows)} card${totalQty(rows) === 1 ? "" : "s"}</span>
           <button type="button" class="btn secondary small" data-action="toggle-select-section" data-ids="${idList}">
             ${allSelected ? "Deselect all" : "Select all"}
           </button>
@@ -154,6 +129,7 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
         <div class="card-row">
           <input type="checkbox" data-action="toggle-select" data-id="${r.id}" ${selected.has(r.id!) ? "checked" : ""} />
           <span class="name">${escapeHtml(r.name)}</span>
+          ${r.set_code ? `<span class="meta set-tag" title="${escapeHtml(setLabel(r))}">${escapeHtml(r.set_code.toUpperCase())}</span>` : ""}
           <input type="number" class="qty-input" min="1" value="${r.quantity}" data-action="edit-qty" data-id="${r.id}" />
           <button type="button" class="btn danger small" data-action="remove-entry" data-id="${r.id}">Remove</button>
         </div>
@@ -172,7 +148,10 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
             ${uri ? `<img src="${escapeHtml(uri)}" alt="${escapeHtml(r.name)}" loading="lazy" />` : `<div class="card-tile-noimg">${escapeHtml(r.name)}</div>`}
             <button type="button" class="remove-btn" data-action="remove-entry" data-id="${r.id}" aria-label="Remove ${escapeHtml(r.name)}">&times;</button>
             <div class="caption">
-              <span class="name">${escapeHtml(r.name)}</span>
+              <div class="caption-title">
+                <span class="name">${escapeHtml(r.name)}</span>
+                ${r.set_code ? `<span class="meta set-tag" title="${escapeHtml(setLabel(r))}">${escapeHtml(r.set_code.toUpperCase())}</span>` : ""}
+              </div>
               <input type="number" class="qty-input" min="1" value="${r.quantity}" data-action="edit-qty" data-id="${r.id}" />
             </div>
           </div>
