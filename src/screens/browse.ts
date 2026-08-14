@@ -185,10 +185,12 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
         </div>
         <button type="button" class="btn secondary small" data-action="select-all-visible">Select all visible</button>
         <button type="button" class="btn secondary small" data-action="clear-checked">Clear selection</button>
-        <label class="spec-hint">Qty
-          <input type="number" id="add-qty" class="qty-input" min="1" value="${quantity}" style="width:3.5rem;margin-left:0.3rem;" />
-        </label>
-        <button type="button" class="btn" data-action="add-checked" ${n === 0 ? "disabled" : ""}>Add checked to want list (${n})</button>
+        <div class="stepper" aria-label="Quantity to add">
+          <button type="button" class="stepper-btn" data-action="qty-dec" aria-label="Decrease quantity">&minus;</button>
+          <span class="stepper-value">${quantity}</span>
+          <button type="button" class="stepper-btn" data-action="qty-inc" aria-label="Increase quantity">+</button>
+        </div>
+        <button type="button" class="btn ${n > 0 ? "glow" : ""}" data-action="add-checked" ${n === 0 ? "disabled" : ""}>Add ${n} to want list</button>
       </div>
     `;
   }
@@ -252,7 +254,7 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
               const isChecked = checkedSet?.has(c.collector_number) ?? false;
               return `
               <div class="card-tile ${isChecked ? "selected" : ""}" data-action="toggle-check" data-set="${escapeHtml(code)}" data-key="${escapeHtml(c.collector_number)}" role="button" tabindex="0">
-                ${c.image_uri ? `<img src="${escapeHtml(c.image_uri)}" alt="${escapeHtml(c.name)}" loading="lazy" />` : `<div class="card-tile-noimg">${escapeHtml(c.name)}</div>`}
+                ${c.image_uri ? `<img src="${escapeHtml(c.image_uri)}" alt="${escapeHtml(c.name)}" loading="lazy" />` : `<div class="card-tile-noimg ${rarity === "other" ? "" : rarity}">${escapeHtml(c.name)}</div>`}
                 ${count > 1 ? `<span class="version-badge">×${count}</span>` : ""}
                 <div class="caption">
                   <span class="name">${escapeHtml(c.name)}</span>
@@ -438,6 +440,14 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
       case "add-checked":
         void addChecked();
         break;
+      case "qty-dec":
+        quantity = Math.max(1, quantity - 1);
+        render();
+        break;
+      case "qty-inc":
+        quantity += 1;
+        render();
+        break;
     }
   }
 
@@ -450,9 +460,6 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
       const input = root.querySelector<HTMLInputElement>("#set-search");
       input?.focus();
       input?.setSelectionRange(input.value.length, input.value.length);
-    } else if (target.id === "add-qty") {
-      const v = parseInt((target as HTMLInputElement).value, 10);
-      quantity = Number.isFinite(v) && v > 0 ? v : 1;
     } else if (target.matches('input[data-action="toggle-rarity"]')) {
       const r = (target as HTMLInputElement).dataset.rarity!;
       if ((target as HTMLInputElement).checked) activeRarities.add(r);
@@ -463,7 +470,7 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
 
   function onFocusIn(e: FocusEvent) {
     const target = e.target as HTMLElement;
-    if (target.id === "set-search") {
+    if (target.id === "set-search" && !suggestOpen) {
       suggestOpen = true;
       render();
       const input = root.querySelector<HTMLInputElement>("#set-search");

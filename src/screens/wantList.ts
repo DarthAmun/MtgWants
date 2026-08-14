@@ -130,7 +130,11 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
           <input type="checkbox" data-action="toggle-select" data-id="${r.id}" ${selected.has(r.id!) ? "checked" : ""} />
           <span class="name">${escapeHtml(r.name)}</span>
           ${r.set_code ? `<span class="meta set-tag" title="${escapeHtml(setLabel(r))}">${escapeHtml(r.set_code.toUpperCase())}</span>` : ""}
-          <input type="number" class="qty-input" min="1" value="${r.quantity}" data-action="edit-qty" data-id="${r.id}" />
+          <div class="stepper stepper-sm">
+            <button type="button" class="stepper-btn" data-action="qty-dec" data-id="${r.id}" aria-label="Decrease quantity">&minus;</button>
+            <span class="stepper-value">${r.quantity}</span>
+            <button type="button" class="stepper-btn" data-action="qty-inc" data-id="${r.id}" aria-label="Increase quantity">+</button>
+          </div>
           <button type="button" class="btn danger small" data-action="remove-entry" data-id="${r.id}">Remove</button>
         </div>
       `,
@@ -145,14 +149,18 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
         return `
           <div class="card-tile ${selected.has(r.id!) ? "selected" : ""}">
             <input type="checkbox" class="select-box" data-action="toggle-select" data-id="${r.id}" ${selected.has(r.id!) ? "checked" : ""} />
-            ${uri ? `<img src="${escapeHtml(uri)}" alt="${escapeHtml(r.name)}" loading="lazy" />` : `<div class="card-tile-noimg">${escapeHtml(r.name)}</div>`}
+            ${uri ? `<img src="${escapeHtml(uri)}" alt="${escapeHtml(r.name)}" loading="lazy" />` : `<div class="card-tile-noimg ${r.rarity ?? ""}">${escapeHtml(r.name)}</div>`}
             <button type="button" class="remove-btn" data-action="remove-entry" data-id="${r.id}" aria-label="Remove ${escapeHtml(r.name)}">&times;</button>
             <div class="caption">
               <div class="caption-title">
                 <span class="name">${escapeHtml(r.name)}</span>
                 ${r.set_code ? `<span class="meta set-tag" title="${escapeHtml(setLabel(r))}">${escapeHtml(r.set_code.toUpperCase())}</span>` : ""}
               </div>
-              <input type="number" class="qty-input" min="1" value="${r.quantity}" data-action="edit-qty" data-id="${r.id}" />
+              <div class="stepper stepper-sm">
+                <button type="button" class="stepper-btn" data-action="qty-dec" data-id="${r.id}" aria-label="Decrease quantity">&minus;</button>
+                <span class="stepper-value">${r.quantity}</span>
+                <button type="button" class="stepper-btn" data-action="qty-inc" data-id="${r.id}" aria-label="Increase quantity">+</button>
+              </div>
             </div>
           </div>
         `;
@@ -164,6 +172,12 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
   async function updateQuantity(id: number, quantity: number) {
     if (quantity < 1 || !Number.isFinite(quantity)) return;
     await db.want_list.update(id, { quantity });
+  }
+
+  function stepQuantity(id: number, delta: number) {
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return;
+    void updateQuantity(id, entry.quantity + delta);
   }
 
   async function removeEntry(id: number) {
@@ -232,16 +246,18 @@ export function mountWantListScreen(container: HTMLElement): ScreenHandle {
       case "export-download":
         void doExport("download");
         break;
+      case "qty-dec":
+        stepQuantity(Number(actionEl.dataset.id), -1);
+        break;
+      case "qty-inc":
+        stepQuantity(Number(actionEl.dataset.id), 1);
+        break;
     }
   }
 
   function onChange(e: Event) {
     const target = e.target as HTMLElement;
-    if (target.matches('input[data-action="edit-qty"]')) {
-      const id = Number((target as HTMLInputElement).dataset.id);
-      const value = parseInt((target as HTMLInputElement).value, 10);
-      void updateQuantity(id, value);
-    } else if (target.matches('input[data-action="toggle-select"]')) {
+    if (target.matches('input[data-action="toggle-select"]')) {
       const id = Number((target as HTMLInputElement).dataset.id);
       toggleSelect(id);
     }

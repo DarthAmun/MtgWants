@@ -9,24 +9,49 @@ export interface ScreenHandle {
 
 type ScreenId = "browse" | "want-list" | "import";
 
-const SCREENS: { id: ScreenId; label: string; mount: (el: HTMLElement) => ScreenHandle }[] = [
-  { id: "browse", label: "Browse Sets", mount: mountBrowseScreen },
-  { id: "want-list", label: "Want List", mount: mountWantListScreen },
-  { id: "import", label: "Import List", mount: mountImportScreen },
+const SCREENS: {
+  id: ScreenId;
+  label: string;
+  icon: string;
+  mount: (el: HTMLElement) => ScreenHandle;
+}[] = [
+  { id: "browse", label: "Browse Sets", icon: "▦", mount: mountBrowseScreen },
+  { id: "want-list", label: "Want List", icon: "★", mount: mountWantListScreen },
+  { id: "import", label: "Import", icon: "⤓", mount: mountImportScreen },
 ];
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
-  <header class="app-header">
-    <h1>MTG Want List Builder</h1>
-    <span class="spec-hint">offline-first &middot; data cached locally</span>
-  </header>
-  <nav class="tabs"></nav>
-  <main class="screen"></main>
+  <div class="app-shell">
+    <div class="bg-orb bg-orb-a"></div>
+    <div class="bg-orb bg-orb-b"></div>
+    <div class="bg-orb bg-orb-c"></div>
+    <div class="app-frame">
+      <div class="app-frame-inner">
+        <header class="app-header">
+          <h1>MTG Want List Builder</h1>
+          <span class="spec-hint">offline &middot; cards cached locally</span>
+        </header>
+        <nav class="tabs-desktop"></nav>
+        <main class="screen"></main>
+        <nav class="tabs-mobile"></nav>
+      </div>
+    </div>
+  </div>
 `;
 
-const tabsEl = app.querySelector<HTMLElement>("nav.tabs")!;
+const tabsDesktopEl = app.querySelector<HTMLElement>("nav.tabs-desktop")!;
+const tabsMobileEl = app.querySelector<HTMLElement>("nav.tabs-mobile")!;
 const screenEl = app.querySelector<HTMLElement>("main.screen")!;
+
+tabsDesktopEl.innerHTML = SCREENS.map(
+  (s) => `<button type="button" data-id="${s.id}">${s.label}</button>`,
+).join("");
+
+tabsMobileEl.innerHTML = SCREENS.map(
+  (s) =>
+    `<button type="button" data-id="${s.id}"><span class="icon">${s.icon}</span><span class="label">${s.label}</span></button>`,
+).join("");
 
 let activeHandle: ScreenHandle | null = null;
 
@@ -34,7 +59,7 @@ function setActiveTab(id: ScreenId) {
   const screen = SCREENS.find((s) => s.id === id);
   if (!screen) return;
 
-  for (const btn of tabsEl.querySelectorAll("button")) {
+  for (const btn of app.querySelectorAll<HTMLButtonElement>("[data-id]")) {
     btn.classList.toggle("active", btn.dataset.id === id);
   }
 
@@ -44,15 +69,14 @@ function setActiveTab(id: ScreenId) {
   location.hash = id;
 }
 
-tabsEl.innerHTML = SCREENS.map(
-  (s) => `<button type="button" data-id="${s.id}">${s.label}</button>`,
-).join("");
-
-tabsEl.addEventListener("click", (e) => {
+function onTabClick(e: MouseEvent) {
   const btn = (e.target as HTMLElement).closest("button[data-id]") as HTMLButtonElement | null;
   if (!btn) return;
   setActiveTab(btn.dataset.id as ScreenId);
-});
+}
+
+tabsDesktopEl.addEventListener("click", onTabClick);
+tabsMobileEl.addEventListener("click", onTabClick);
 
 const initialId = (location.hash.replace("#", "") as ScreenId) || "browse";
 setActiveTab(SCREENS.some((s) => s.id === initialId) ? initialId : "browse");
