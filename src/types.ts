@@ -12,6 +12,8 @@ export interface CachedCard {
   rarity: Rarity;
   collector_number: string;
   image_uri: string | null;
+  colors: string[];
+  type_line: string;
 }
 
 export interface SetsCacheRecord {

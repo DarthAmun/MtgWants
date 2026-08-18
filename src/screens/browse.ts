@@ -17,12 +17,40 @@ interface SetLoadState {
 
 const CANONICAL_RARITIES = ["mythic", "rare", "uncommon", "common"] as const;
 
+const CANONICAL_COLORS = ["W", "U", "B", "R", "G", "C"] as const;
+const COLOR_LABEL: Record<(typeof CANONICAL_COLORS)[number], string> = {
+  W: "White",
+  U: "Blue",
+  B: "Black",
+  R: "Red",
+  G: "Green",
+  C: "Colorless",
+};
+
+const CARD_TYPES = [
+  "Creature",
+  "Planeswalker",
+  "Battle",
+  "Instant",
+  "Sorcery",
+  "Artifact",
+  "Enchantment",
+  "Land",
+] as const;
+
+function cardTypes(typeLine: string): string[] {
+  return CARD_TYPES.filter((t) => typeLine.includes(t));
+}
+
 export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
   let allSets: AllSetRecord[] = [];
   let allSetsByCode = new Map<string, AllSetRecord>();
   const selected: string[] = [];
   const setData = new Map<string, SetLoadState>();
   const activeRarities = new Set<string>(CANONICAL_RARITIES);
+  const activeColors = new Set<string>(CANONICAL_COLORS);
+  const activeTypes = new Set<string>(CARD_TYPES);
+  let nameFilter = "";
   const checked = new Map<string, Set<string>>();
   let viewMode: ViewMode = "list";
   let query = "";
@@ -49,11 +77,27 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
   }
 
   function filteredCards(cards: CachedCard[]): CachedCard[] {
+    const q = nameFilter.trim().toLowerCase();
     return cards.filter((c) => {
       if (CANONICAL_RARITIES.includes(c.rarity as (typeof CANONICAL_RARITIES)[number])) {
-        return activeRarities.has(c.rarity);
+        if (!activeRarities.has(c.rarity)) return false;
+      } // non-canonical rarities (e.g. "special", "bonus") always pass this check
+
+      if (q && !c.name.toLowerCase().includes(q)) return false;
+
+      const colors = c.colors ?? [];
+      if (colors.length === 0) {
+        if (!activeColors.has("C")) return false;
+      } else if (!colors.some((col) => activeColors.has(col))) {
+        return false;
       }
-      return true; // non-canonical rarities (e.g. "special", "bonus") always shown
+
+      const types = cardTypes(c.type_line ?? "");
+      if (types.length > 0 && !types.some((t) => activeTypes.has(t))) {
+        return false; // non-recognized types (e.g. tokens with no known type) always pass
+      }
+
+      return true;
     });
   }
 
@@ -113,6 +157,7 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
           ? `
         <section>
           <h2>Set Browser</h2>
+          ${renderFilters()}
           ${renderToolbar()}
           ${statusMessage ? `<p class="status-line ${statusIsError ? "error" : ""}">${escapeHtml(statusMessage)}</p>` : ""}
           <div class="set-boxes">
@@ -165,10 +210,10 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
     }
   }
 
-  function renderToolbar(): string {
-    const n = checkedCount();
+  function renderFilters(): string {
     return `
-      <div class="toolbar">
+      <div class="filters-bar">
+        <input type="text" id="card-search" class="filter-search" placeholder="Filter by card name…" value="${escapeHtml(nameFilter)}" autocomplete="off" />
         <div class="rarity-filter">
           ${CANONICAL_RARITIES.map(
             (r) => `
@@ -179,6 +224,34 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
           `,
           ).join("")}
         </div>
+        <div class="color-filter">
+          ${CANONICAL_COLORS.map(
+            (c) => `
+            <label>
+              <input type="checkbox" data-action="toggle-color" data-color="${c}" ${activeColors.has(c) ? "checked" : ""} />
+              <span class="color-dot color-${c}"></span>${COLOR_LABEL[c]}
+            </label>
+          `,
+          ).join("")}
+        </div>
+        <div class="type-filter">
+          ${CARD_TYPES.map(
+            (t) => `
+            <label>
+              <input type="checkbox" data-action="toggle-type" data-type="${t}" ${activeTypes.has(t) ? "checked" : ""} />
+              ${t}
+            </label>
+          `,
+          ).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderToolbar(): string {
+    const n = checkedCount();
+    return `
+      <div class="toolbar">
         <div class="view-toggle">
           <button type="button" data-action="view-list" class="${viewMode === "list" ? "active" : ""}">List</button>
           <button type="button" data-action="view-grid" class="${viewMode === "grid" ? "active" : ""}">Grid</button>
@@ -211,7 +284,7 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
       const sections = groups.map((g) => renderRaritySection(code, g.rarity, g.items)).join("");
       body =
         sections ||
-        `<p class="empty-state">No cards match the current rarity filter.</p>`;
+        `<p class="empty-state">No cards match the current filters.</p>`;
     }
 
     const total = state?.record?.cards.length ?? 0;
@@ -460,10 +533,26 @@ export function mountBrowseScreen(container: HTMLElement): ScreenHandle {
       const input = root.querySelector<HTMLInputElement>("#set-search");
       input?.focus();
       input?.setSelectionRange(input.value.length, input.value.length);
+    } else if (target.id === "card-search") {
+      nameFilter = (target as HTMLInputElement).value;
+      render();
+      const input = root.querySelector<HTMLInputElement>("#card-search");
+      input?.focus();
+      input?.setSelectionRange(input.value.length, input.value.length);
     } else if (target.matches('input[data-action="toggle-rarity"]')) {
       const r = (target as HTMLInputElement).dataset.rarity!;
       if ((target as HTMLInputElement).checked) activeRarities.add(r);
       else activeRarities.delete(r);
+      render();
+    } else if (target.matches('input[data-action="toggle-color"]')) {
+      const c = (target as HTMLInputElement).dataset.color!;
+      if ((target as HTMLInputElement).checked) activeColors.add(c);
+      else activeColors.delete(c);
+      render();
+    } else if (target.matches('input[data-action="toggle-type"]')) {
+      const t = (target as HTMLInputElement).dataset.type!;
+      if ((target as HTMLInputElement).checked) activeTypes.add(t);
+      else activeTypes.delete(t);
       render();
     }
   }

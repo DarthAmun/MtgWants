@@ -22,6 +22,8 @@ interface ScryfallImageUris {
 
 interface ScryfallCardFace {
   image_uris?: ScryfallImageUris;
+  colors?: string[];
+  type_line?: string;
 }
 
 interface ScryfallCardObject {
@@ -29,6 +31,8 @@ interface ScryfallCardObject {
   rarity: string;
   collector_number: string;
   set: string;
+  colors?: string[];
+  type_line?: string;
   image_uris?: ScryfallImageUris;
   card_faces?: ScryfallCardFace[];
 }
@@ -59,6 +63,30 @@ function extractImageUri(card: ScryfallCardObject): string | null {
     }
   }
   return null;
+}
+
+/** Double-faced cards report colors per face; merge them for a single filterable set. */
+function extractColors(card: ScryfallCardObject): string[] {
+  if (card.colors) return card.colors;
+  if (card.card_faces && card.card_faces.length > 0) {
+    const colors = new Set<string>();
+    for (const face of card.card_faces) {
+      for (const c of face.colors ?? []) colors.add(c);
+    }
+    return [...colors];
+  }
+  return [];
+}
+
+function extractTypeLine(card: ScryfallCardObject): string {
+  if (card.type_line) return card.type_line;
+  if (card.card_faces && card.card_faces.length > 0) {
+    return card.card_faces
+      .map((f) => f.type_line ?? "")
+      .filter(Boolean)
+      .join(" // ");
+  }
+  return "";
 }
 
 /** One-time fetch of the full set list. Caller is responsible for caching. */
@@ -98,6 +126,8 @@ export async function fetchSetCards(setCode: string): Promise<CachedCard[]> {
         rarity: card.rarity,
         collector_number: card.collector_number,
         image_uri: extractImageUri(card),
+        colors: extractColors(card),
+        type_line: extractTypeLine(card),
       });
     }
     if (body.has_more && body.next_page) {
